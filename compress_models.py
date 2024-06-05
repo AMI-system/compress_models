@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import torch, torchvision
 import sys
 
-#sys.path.append('/bask/homes/f/fspo1218/amber/projects/species_classifier/')
+#sys.path.append('~/amber/projects/species_classifier/')
 sys.path.append('../species_classifier/models/')
 sys.path.append('../species_classifier/data2/')
 sys.path.append('../species_classifier/evaluation/')
@@ -21,12 +21,12 @@ from data2 import dataloader
 import evaluation
 
 # Load an example image
-image_file='/bask/homes/f/fspo1218/amber/data/gbif_download_standalone/gbif_images/Noctuidae/Spodoptera/Spodoptera exigua/1211977745.jpg'
+image_file='~/amber/data/gbif_download_standalone/gbif_images/Noctuidae/Spodoptera/Spodoptera exigua/1211977745.jpg'
 
 
 # Define the model and labels of interest 
 region = 'costarica'
-f = open(f"/bask/homes/f/fspo1218/amber/data/gbif_{region}/02_{region}_data_numeric_labels.json")
+f = open(f"~/amber/data/gbif_{region}/02_{region}_data_numeric_labels.json")
 label_info = json.load(f)
 label_info = label_info['species_list']
 species_list_mila = list(label_info)
@@ -34,14 +34,14 @@ print(len(species_list_mila), " species in total")
 
 num_classes = len(species_list_mila)
 
-files = os.listdir("/bask/homes/f/fspo1218/amber/projects/species_classifier/outputs/")
-PATH = os.path.join("/bask/homes/f/fspo1218/amber/projects/species_classifier/outputs/",
+files = os.listdir("~/amber/projects/species_classifier/outputs/")
+PATH = os.path.join("~/amber/projects/species_classifier/outputs/",
                [file for file in files if region in file and 'resnet50' in file and 'state' not in file][1])
 print('model: ', PATH)
 
 device = torch.device('cpu')
 
-output_dir = f'/bask/homes/f/fspo1218/amber/data/compressed_models/gbif_{region}/'
+output_dir = f'~/amber/data/compressed_models/gbif_{region}/'
 os.makedirs(output_dir, exist_ok=True)
 
 # Function to convert a pytorch model to tflite
