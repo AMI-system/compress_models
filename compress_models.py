@@ -8,41 +8,17 @@ import numpy as np
 import tensorflow as tf
 import json
 from PIL import Image
-import matplotlib.pyplot as plt
-import torch, torchvision
 import sys
+import argparse
 
-#sys.path.append('~/amber/projects/species_classifier/')
-sys.path.append('../species_classifier/models/')
-sys.path.append('../species_classifier/data2/')
-sys.path.append('../species_classifier/evaluation/')
+# #sys.path.append('~/amber/projects/species_classifier/')
+# sys.path.append('../species_classifier/models/')
+# sys.path.append('../species_classifier/data2/')
+# sys.path.append('../species_classifier/evaluation/')
 
-from data2 import dataloader
-import evaluation
+# from data2 import dataloader
+# import evaluation
 
-# Load an example image
-image_file='~/amber/data/gbif_download_standalone/gbif_images/Noctuidae/Spodoptera/Spodoptera exigua/1211977745.jpg'
-
-
-# Define the model and labels of interest 
-region = 'costarica'
-f = open(f"~/amber/data/gbif_{region}/02_{region}_data_numeric_labels.json")
-label_info = json.load(f)
-label_info = label_info['species_list']
-species_list_mila = list(label_info)
-print(len(species_list_mila), " species in total")
-
-num_classes = len(species_list_mila)
-
-files = os.listdir("~/amber/projects/species_classifier/outputs/")
-PATH = os.path.join("~/amber/projects/species_classifier/outputs/",
-               [file for file in files if region in file and 'resnet50' in file and 'state' not in file][1])
-print('model: ', PATH)
-
-device = torch.device('cpu')
-
-output_dir = f'~/amber/data/compressed_models/gbif_{region}/'
-os.makedirs(output_dir, exist_ok=True)
 
 # Function to convert a pytorch model to tflite
 def pytorch_to_tflite(model, output_dir, image, output_model_prefix="model"):
@@ -50,7 +26,7 @@ def pytorch_to_tflite(model, output_dir, image, output_model_prefix="model"):
     # convert the model to onnx
     print("Converting to onnx")
 
-    onnx_path = output_dir + "/" + output_model_prefix + ".onnx"
+    onnx_path = os.path.join(output_dir, output_model_prefix + ".onnx")
     torch.onnx.export(
             model=model.eval(),
             args=image.unsqueeze(0),
@@ -65,7 +41,7 @@ def pytorch_to_tflite(model, output_dir, image, output_model_prefix="model"):
 
     # Convert to tf
     print("Converting to tensorflow...")
-    tf_path = output_dir + "/tf_" + output_model_prefix
+    tf_path = os.path.join(output_dir, "tf_" + output_model_prefix)
     onnx_model = onnx.load(onnx_path)
     onnx.checker.check_model(onnx_model)
     tf_rep = prepare(onnx_model, device='CPU')
@@ -81,47 +57,68 @@ def pytorch_to_tflite(model, output_dir, image, output_model_prefix="model"):
     tflite_model = converter.convert()
 
     print("Saving converted model")
-    with open(output_dir + "/" + output_model_prefix + ".tflite", 'wb') as f:
+    tflite_path = os.path.join(output_dir, output_model_prefix + ".tflite")
+    with open(tflite_path, 'wb') as f:
         f.write(tflite_model)
 
     return tflite_model
 
 
-# Import image
-image = Image.open(image_file)
+def load_model(model_path, device, num_classes):
+    if 'efficientnet' in model_path:
+        model = models.efficientnet_b0(pretrained=True)
+        model = model.to(device)
+        checkpoint = torch.load(model_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
+    elif 'resnet' in model_path:
+        model = torchvision.models.resnet50(weights=None)
+        num_ftrs = model.fc.in_features
+        model.fc = torch.nn.Linear(num_ftrs, num_classes)
+        model = model.to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.eval()
+    else:
+        raise ValueError('Unsupported model type')
+    return model
 
-# Transform
-transform = torchvision.transforms.Compose(
-    [
-        torchvision.transforms.Resize((300, 300)),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-    ]
-)
-img = transform(image)
+def main(model_path, labels_json_path, output_dir, image_path):
+    # Load labels
+    with open(labels_json_path) as f:
+        label_info = json.load(f)['species_list']
 
-if 'efficientnet' in PATH:
-    model_py_mila = models.efficientnet_b0(pretrained=True)
-    model_py_mila = model_py_mila.to(device)
-    checkpoint = torch.load(PATH, map_location=device)
-    model_py_mila.eval()
+    num_classes = len(label_info)
 
-elif 'resnet' in PATH:
-    model_py_mila = torchvision.models.resnet50(weights=None)
-    num_ftrs = model_py_mila.fc.in_features
-    model_py_mila.fc = torch.nn.Linear(num_ftrs, num_classes)
-    model_py_mila = model_py_mila.to(device)
-    model_py_mila = torch.load(PATH, map_location=device)
-    model_py_mila.eval()
+    device = torch.device('cpu')
 
-else:
-    print('clarify model type')
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
 
-print("loaded MILA model")
+    # Load and transform image
+    image = Image.open(image_path)
+    transform = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.Resize((300, 300)),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+        ]
+    )
+    img = transform(image)
 
-pref = 'resnet_' + region
+    # Load model
+    model = load_model(model_path, device, num_classes)
 
-tflite_model = pytorch_to_tflite(model_py_mila,
-                  output_dir=output_dir,
-                  image=img,
-                  output_model_prefix=pref)
+    # Convert to TFLite
+    pref = 'resnet_' + os.path.basename(labels_json_path).split('_')[1]  # Use region from filename
+    tflite_model = pytorch_to_tflite(model, output_dir, img, output_model_prefix=pref)
+    print("Conversion complete")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert a PyTorch model to TFLite")
+    parser.add_argument('--model_path', type=str, required=True, help="Path to the PyTorch model")
+    parser.add_argument('--output_dir', type=str, required=True, help="Output directory for the converted model")
+    parser.add_argument('--image_path', type=str, required=True, help="Path to an example input image")
+    parser.add_argument('--labels_json_path', type=str, required=True, help="Path to the numeric labels JSON file")
+    args = parser.parse_args()
+    
+    main(args.model_path, args.output_dir, args.image_path, args.labels_json_path)
